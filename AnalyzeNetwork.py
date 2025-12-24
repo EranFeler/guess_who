@@ -102,7 +102,7 @@ class AnalyzeNetwork:
         returns assumed operating system of a device
         """
         windows_default_payload = b"abcdefghijklmnopqrstuvwabcdefghi"
-        unix_default_payload = bytes(range(0x10, 0x50))  # 0x10 to 0x4F = 64 bytes
+        unix_default_payload = bytes(range(0x10, 0x38)) # should be fixed now, used an incorrect range before
         mac = device_info.get("MAC")
         if not mac:
             return "Unknown"
@@ -112,19 +112,19 @@ class AnalyzeNetwork:
             if Ether in packet and packet[Ether].src == mac:
                 if IP in packet:
                     ttl = packet[IP].ttl
-                    if ttl <= 128:
+                    if ttl in range(125, 132):
                         ttl_signs.append("Windows")
-                        if ttl <= 64:
-                            ttl_signs.append("Unix")
-                    else:
+                    if ttl in range(61, 68):
+                        ttl_signs.append("Unix")
+                    if ttl >= 250:
                         ttl_signs.append("Network Device")
                 if ICMP in packet and packet[ICMP].type == 8:
                     if Raw in packet:
                         payload = bytes(packet[Raw].load)
-                        if windows_default_payload in payload:
-                            payload_signs.append("Windows")
-                        elif unix_default_payload in payload:
+                        if unix_default_payload in payload:
                             payload_signs.append("Unix")
+                        elif windows_default_payload in payload:
+                            payload_signs.append("Windows")
         all_signs = ttl_signs + payload_signs
         if not all_signs:
             return "Unknown"
