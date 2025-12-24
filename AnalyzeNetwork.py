@@ -65,17 +65,27 @@ class AnalyzeNetwork:
             if ARP in packet:
                 mac = packet[ARP].hwsrc
                 ip = packet[ARP].psrc
-            if mac and mac != "00:00:00:00:00:00":
+            if mac:
                 if mac not in seen_macs:
-                    device = {"MAC": mac, "IP": "Unknown", "VENDOR": self.get_vendor(mac)}
+                    device = {
+                        "MAC": mac,
+                        "IP": "Unknown",
+                        "VENDOR": self.get_vendor(mac),
+                        "OS": "Unknown"
+                    }
                     devices.append(device)
                     seen_macs[mac] = device
-                if ip and ip != "0.0.0.0":
+                if ip:
                     seen_macs[mac]["IP"] = ip
+        for device in devices:
+            device["OS"] = self.guess_os(device)
         return devices
 
+
     def get_vendor(self, mac):
-        """Get vendor name from MAC address"""
+        """
+        Get vendor name from MAC address
+        """
         try:
             url = f"https://api.macvendors.com/{mac}"
             response = requests.get(url, timeout=2)
@@ -86,6 +96,39 @@ class AnalyzeNetwork:
         except Exception:
             pass
         return "Unknown"
+    
+    def guess_os(self, device_info):
+        """
+        returns assumed operating system of a device
+        """
+        windows_default_payload = b"abcdefghijklmnopqrstuvwabcdefghi"
+        unix_default_payload = bytes(range(0x10, 0x50))  # 0x10 to 0x4F = 64 bytes
+        mac = device_info.get("MAC")
+        if not mac:
+            return "Unknown"
+        ttl_signs = []
+        payload_signs = []
+        for packet in self.packets:
+            if Ether in packet and packet[Ether].src == mac:
+                if IP in packet:
+                    ttl = packet[IP].ttl
+                    if ttl <= 128:
+                        ttl_signs.append("Windows")
+                        if ttl <= 64:
+                            ttl_signs.append("Unix")
+                    else:
+                        ttl_signs.append("Network Device")
+                if ICMP in packet and packet[ICMP].type == 8:
+                    if Raw in packet:
+                        payload = bytes(packet[Raw].load)
+                        if windows_default_payload in payload:
+                            payload_signs.append("Windows")
+                        elif unix_default_payload in payload:
+                            payload_signs.append("Unix")
+        all_signs = ttl_signs + payload_signs
+        if not all_signs:
+            return "Unknown"
+        return list(set(all_signs))
     
     def __repr__(self):
         return f"AnalyzeNetwork('{self.pcap_path}')"
