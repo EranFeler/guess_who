@@ -1,4 +1,5 @@
 from scapy.all import *
+import pyshark
 import requests
 import time
 
@@ -71,7 +72,8 @@ class AnalyzeNetwork:
                         "MAC": mac,
                         "IP": "Unknown",
                         "VENDOR": self.get_vendor(mac),
-                        "OS": "Unknown"
+                        "OS": "Unknown",
+                        "APPS": "Unknown"
                     }
                     devices.append(device)
                     seen_macs[mac] = device
@@ -79,6 +81,7 @@ class AnalyzeNetwork:
                     seen_macs[mac]["IP"] = ip
         for device in devices:
             device["OS"] = self.guess_os(device)
+            device["APPS"] = self.guess_apps(device)
         return devices
 
 
@@ -130,6 +133,32 @@ class AnalyzeNetwork:
             return "Unknown"
         return list(set(all_signs))
     
+    def guess_apps(self, device_info):
+        """
+        Returns list of applications detected from HTTP traffic
+        """
+        mac = device_info.get("MAC")
+        if not mac:
+            return ["Unknown"]
+        possible_apps = set()
+        cap = pyshark.FileCapture(self.pcap_path, display_filter='http.user_agent')
+        for packet in cap:
+            packet_mac = None
+            if hasattr(packet, 'eth'):
+                packet_mac = packet.eth.src
+            if packet_mac == mac:
+                user_agent = packet.http.user_agent
+                parts = user_agent.replace('/', ' ').replace('(', ' ').replace(')', ' ').replace(';', ' ').replace(',', ' ').split()
+                for part in parts:
+                    part = part.strip()
+                    if part.replace('.', '').isdigit() or part.lower() in ['mozilla', 'compatible', 'msie', 'rv', 'like', 'gecko', 'linux','x86_64','windows','applewebkit', 'khtml', 'x11']:
+                        continue
+                    possible_apps.add(part)
+        cap.close()
+        if not possible_apps:
+            return ["Unknown"]
+        return list(possible_apps)
+
     def __repr__(self):
         return f"AnalyzeNetwork('{self.pcap_path}')"
 
